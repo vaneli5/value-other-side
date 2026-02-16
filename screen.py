@@ -25,8 +25,8 @@ except ImportError:
     sys.exit(1)
 
 # 配置
-DEFAULT_TOKEN = '1210f0ad5351429dc2419b3c0434c1b42b702fc5a2a524357bae5861'
-TOKEN = os.environ.get('TUSHARE_TOKEN', DEFAULT_TOKEN)
+DEFAULT_TOKEN = ''  # 默认空，需要通过参数传入
+GITHUB_TOKEN = os.environ.get('GITHUB_TOKEN', '')
 
 # GitHub配置
 GITHUB_TOKEN = os.environ.get('GITHUB_TOKEN', '')
@@ -35,18 +35,19 @@ REPO_NAME = 'agent-memo'
 BRANCH = 'main'
 
 
-def get_token():
+def get_token(token=None):
     """获取tushare token"""
+    if token:
+        return token
     token_file = os.path.expanduser('~/.tushare_token')
     if os.path.exists(token_file):
         with open(token_file) as f:
             return f.read().strip()
-    return TOKEN
+    return os.environ.get('TUSHARE_TOKEN', '')
 
 
-def fetch_data():
+def fetch_data(token):
     """获取今日行情数据"""
-    token = get_token()
     ts.set_token(token)
     pro = ts.pro_api(token)
     
@@ -151,12 +152,20 @@ def main():
                         help='PB最大值 (default: 2)')
     parser.add_argument('--turnover', type=float, default=0.5,
                         help='最小换手率%% (default: 0.5)')
+    parser.add_argument('-t', '--token', type=str, 
+                        default='1210f0ad5351429dc2419b3c0434c1b42b702fc5a2a524357bae5861',
+                        help='Tushare token (default: from environment TUSHARE_TOKEN)')
     parser.add_argument('-s', '--save', action='store_true',
                         help='保存结果到GitHub')
     parser.add_argument('-v', '--verbose', action='store_true',
                         help='显示详细信息')
     
     args = parser.parse_args()
+    
+    if not args.token:
+        print("Error: 请通过 -t/--token 参数传入 Tushare token")
+        print("Usage: python screen.py -t YOUR_TOKEN [-l 10]")
+        sys.exit(1)
     
     print("=" * 50)
     print("价值另一面 - A股低估筛选器")
@@ -165,7 +174,7 @@ def main():
     
     # 获取数据
     print("\n[1/2] 获取行情数据...")
-    df = fetch_data()
+    df = fetch_data(args.token)
     if df is None or len(df) == 0:
         print("✗ 获取数据失败")
         sys.exit(1)
