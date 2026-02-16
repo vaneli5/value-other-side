@@ -207,40 +207,48 @@ def show_top3(df, token):
             (df['pb'] > 0) & (df['pb'] < 3) &
             (df['turnover_rate'] > 0.5)]
     
-    print("\n" + "="*50)
+    print("\n" + "="*80)
     print("各维度TOP3 (PE<20, PB<3, 换手>0.5%)")
-    print("="*50)
+    print("="*80)
     
-    # 高ROE TOP3
-    top_roe = df[df['roe'].notna()].nlargest(3, 'roe')
-    print("\n📈 高ROE TOP3:")
-    for _, row in top_roe.iterrows():
-        print(f"  {row['ts_code']:6} {row['name']:8} PE:{row['pe_ttm']:4.1f} ROE:{row['roe']:5.1f}%")
+    # 合并成一个表
+    top_roe = df[df['roe'].notna()].nlargest(3, 'roe').copy()
+    top_roe['维度'] = '高ROE'
     
-    # 高股息 TOP3
-    top_div = df.nlargest(3, 'dv_ratio')
-    print("\n💰 高股息 TOP3:")
-    for _, row in top_div.iterrows():
-        print(f"  {row['ts_code']:6} {row['name']:8} PE:{row['pe_ttm']:4.1f} 股息:{row['dv_ratio']:5.1f}%")
+    top_div = df.nlargest(3, 'dv_ratio').copy()
+    top_div['维度'] = '高股息'
     
-    # 低PE TOP3
-    top_pe = df.nsmallest(3, 'pe_ttm')
-    print("\n🔍 低PE TOP3:")
-    for _, row in top_pe.iterrows():
-        print(f"  {row['ts_code']:6} {row['name']:8} PE:{row['pe_ttm']:4.1f} PB:{row['pb']:4.2f}")
+    top_pe = df.nsmallest(3, 'pe_ttm').copy()
+    top_pe['维度'] = '低PE'
     
-    # 低PB TOP3
-    top_pb = df.nsmallest(3, 'pb')
-    print("\n🏷️ 低PB TOP3:")
-    for _, row in top_pb.iterrows():
-        print(f"  {row['ts_code']:6} {row['name']:8} PB:{row['pb']:4.2f} PE:{row['pe_ttm']:4.1f}")
+    top_pb = df.nsmallest(3, 'pb').copy()
+    top_pb['维度'] = '低PB'
     
-    # 高ROE+高股息（双重筛选）
     df['score'] = df['roe'].fillna(0) + df['dv_ratio'].fillna(0)
-    top_combo = df.nlargest(3, 'score')
-    print("\n⭐ 高ROE+高股息 TOP3:")
-    for _, row in top_combo.iterrows():
-        print(f"  {row['ts_code']:6} {row['name']:8} ROE:{row['roe']:4.1f}% 股息:{row['dv_ratio']:4.1f}% PE:{row['pe_ttm']:4.1f}")
+    top_combo = df.nlargest(3, 'score').copy()
+    top_combo['维度'] = '综合'
+    
+    # 合并所有
+    all_top = pd.concat([top_roe, top_div, top_pe, top_pb, top_combo])
+    all_top = all_top[['维度', 'ts_code', 'name', 'close', 'pe_ttm', 'pb', 'roe', 'dv_ratio', 'turnover_rate']]
+    all_top = all_top.rename(columns={
+        'ts_code': '代码',
+        'name': '名称',
+        'close': '现价',
+        'pe_ttm': 'PE',
+        'pb': 'PB',
+        'roe': 'ROE%',
+        'dv_ratio': '股息%',
+        'turnover_rate': '换手%'
+    })
+    
+    # 格式化
+    for col in ['PE', 'PB', 'ROE%', '股息%', '换手%']:
+        if col in all_top.columns:
+            all_top[col] = all_top[col].round(1)
+    all_top['现价'] = all_top['现价'].round(2)
+    
+    print(all_top.to_string(index=False))
 
 
 def save_to_github(df, subdir='value-other-side'):
