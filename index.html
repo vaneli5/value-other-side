@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>价值另一面 - A股量化分析工具</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        :root {
+            --bg: #0a0a0f;
+            --card: #12121a;
+            --border: #1f1f2e;
+            --text: #e4e4e7;
+            --text-dim: #71717a;
+            --accent: #22d3ee;
+            --accent-dim: #0891b2;
+            --green: #10b981;
+            --orange: #f97316;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 2rem 1.5rem;
+        }
+        
+        header {
+            text-align: center;
+            padding: 3rem 0 4rem;
+        }
+        
+        .logo {
+            font-size: 2.5rem;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            margin-bottom: 0.5rem;
+            background: linear-gradient(135deg, var(--text) 0%, var(--accent) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .tagline {
+            color: var(--text-dim);
+            font-size: 1.1rem;
+        }
+        
+        section {
+            margin-bottom: 3rem;
+        }
+        
+        h2 {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        h2::before {
+            content: "";
+            width: 3px;
+            height: 1.25rem;
+            background: var(--accent);
+            border-radius: 2px;
+        }
+        
+        .features {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 1rem;
+        }
+        
+        .feature {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.25rem;
+            transition: border-color 0.2s;
+        }
+        
+        .feature:hover {
+            border-color: var(--accent-dim);
+        }
+        
+        .feature h3 {
+            font-size: 1rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            color: var(--accent);
+        }
+        
+        .feature p {
+            color: var(--text-dim);
+            font-size: 0.9rem;
+        }
+        
+        .pricing {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1rem;
+        }
+        
+        @media (max-width: 640px) {
+            .pricing {
+                grid-template-columns: 1fr;
+            }
+        }
+        
+        .plan {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.5rem;
+            text-align: center;
+        }
+        
+        .plan.featured {
+            border-color: var(--accent);
+            position: relative;
+        }
+        
+        .plan.featured::before {
+            content: "推荐";
+            position: absolute;
+            top: -10px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--accent);
+            color: var(--bg);
+            font-size: 0.75rem;
+            font-weight: 600;
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+        }
+        
+        .plan-name {
+            font-size: 1rem;
+            font-weight: 600;
+            color: var(--text-dim);
+            margin-bottom: 0.5rem;
+        }
+        
+        .plan-price {
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: 0.25rem;
+        }
+        
+        .plan-price span {
+            font-size: 0.9rem;
+            font-weight: 400;
+            color: var(--text-dim);
+        }
+        
+        .plan-features {
+            list-style: none;
+            margin-top: 1rem;
+            text-align: left;
+        }
+        
+        .plan-features li {
+            padding: 0.4rem 0;
+            font-size: 0.85rem;
+            color: var(--text-dim);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .plan-features li::before {
+            content: "✓";
+            color: var(--green);
+            font-weight: 600;
+        }
+        
+        .plan-features li.missing {
+            color: #3f3f46;
+        }
+        
+        .plan-features li.missing::before {
+            content: "×";
+            color: #3f3f46;
+        }
+        
+        .contact {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 2rem;
+            text-align: center;
+        }
+        
+        .contact p {
+            color: var(--text-dim);
+            margin-bottom: 1rem;
+        }
+        
+        .wechat-qr {
+            width: 160px;
+            height: 160px;
+            background: var(--border);
+            border-radius: 8px;
+            margin: 0 auto;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-dim);
+            font-size: 0.85rem;
+        }
+        
+        footer {
+            text-align: center;
+            padding: 2rem 0;
+            color: var(--text-dim);
+            font-size: 0.8rem;
+        }
+        
+        .hero-text {
+            color: var(--text-dim);
+            max-width: 500px;
+            margin: 0 auto 2rem;
+            font-size: 1rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="logo">价值另一面</div>
+            <p class="tagline">看见别人看不见的价值</p>
+            <p class="hero-text">基于数据挖掘与量化分析，帮你发现市场忽略的错杀机会</p>
+        </header>
+
+        <section>
+            <h2>核心功能</h2>
+            <div class="features">
+                <div class="feature">
+                    <h3>低估筛选</h3>
+                    <p>PE、PB、股息率多维筛选，精准定位被市场低估的优质标的</p>
+                </div>
+                <div class="feature">
+                    <h3>异动监控</h3>
+                    <p>实时监控涨停、跌停、资金流向，第一时间捕捉异常信号</p>
+                </div>
+                <div class="feature">
+                    <h3>财报分析</h3>
+                    <p>智能分析业绩变脸、盈利预测，帮你避开财报地雷</p>
+                </div>
+                <div class="feature">
+                    <h3>龙虎榜追踪</h3>
+                    <p>追踪机构动向，解析明星营业部操作逻辑</p>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>价格方案</h2>
+            <div class="pricing">
+                <div class="plan">
+                    <div class="plan-name">免费版</div>
+                    <div class="plan-price">¥0</div>
+                    <ul class="plan-features">
+                        <li>每日推送分析</li>
+                        <li class="missing">低估筛选</li>
+                        <li class="missing">异动监控</li>
+                        <li class="missing">财报分析</li>
+                        <li class="missing">龙虎榜追踪</li>
+                    </ul>
+                </div>
+                <div class="plan featured">
+                    <div class="plan-name">基础版</div>
+                    <div class="plan-price">¥29<span>/月</span></div>
+                    <ul class="plan-features">
+                        <li>免费版全部</li>
+                        <li>低估筛选</li>
+                        <li>异动监控</li>
+                        <li class="missing">财报分析</li>
+                        <li class="missing">龙虎榜追踪</li>
+                    </ul>
+                </div>
+                <div class="plan">
+                    <div class="plan-name">专业版</div>
+                    <div class="plan-price">¥99<span>/月</span></div>
+                    <ul class="plan-features">
+                        <li>免费版全部</li>
+                        <li>全部高级功能</li>
+                        <li>一对一咨询</li>
+                        <li>定制化报告</li>
+                    </ul>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <h2>联系我们</h2>
+            <div class="contact">
+                <p>扫码添加微信，备注"量化"</p>
+                <div class="wechat-qr">
+                    [微信二维码]
+                </div>
+            </div>
+        </section>
+
+        <footer>
+            <p>© 2026 价值另一面. All rights reserved.</p>
+        </footer>
+    </div>
+</body>
+</html>
