@@ -1,115 +1,127 @@
 #!/usr/bin/env python3
 """
 价值另一面 - A股低估筛选器
-每天自动运行，筛选低估股票，结果保存到 GitHub
+
+Usage:
+    python screen.py                    # 运行筛选
+    python screen.py --limit 20         # 筛选20只
+    python screen.py --save             # 保存到GitHub
+    python screen.py --help             # 查看帮助
+
+Examples:
+    python screen.py -l 10 -s           # 筛选10只并保存
 """
 
-import os
+import argparse
 import datetime
-import pandas as pd
-import tushare as ts
+import os
+import sys
+
+try:
+    import pandas as pd
+    import tushare as ts
+except ImportError:
+    print("Error: Missing dependencies. Run: pip install tushare pandas")
+    sys.exit(1)
 
 # 配置
-TOKEN = os.environ.get('TUSHARE_TOKEN', 'your_token_here')
-GITHUB_TOKEN = os.environ.get('GITHUB_TOKEN', 'ghp_your_token_here')
+DEFAULT_TOKEN = '1210f0ad5351429dc2419b3c0434c1b42b702fc5a2a524357bae5861'
+TOKEN = os.environ.get('TUSHARE_TOKEN', DEFAULT_TOKEN)
+
+# GitHub配置
+GITHUB_TOKEN = os.environ.get('GITHUB_TOKEN', '')
 REPO_OWNER = 'vaneli5'
 REPO_NAME = 'agent-memo'
 BRANCH = 'main'
 
-# 筛选条件
-FILTER_CONDITIONS = {
-    'pe_ttm': (0, 15),          # 市盈率 0-15
-    'pb': (0, 2),                # 市净率 0-2
-    'dv_ratio': (2, None),       # 股息率 > 2%
-    'roe': (10, None),           # ROE > 10%
-}
 
 def get_token():
     """获取tushare token"""
-    if TOKEN != 'your_token_here':
-        return TOKEN
-    
-    # 尝试从文件读取
     token_file = os.path.expanduser('~/.tushare_token')
     if os.path.exists(token_file):
         with open(token_file) as f:
             return f.read().strip()
-    return None
+    return TOKEN
 
-def fetch_stock_data():
-    """获取股票数据"""
-    pro = ts.pro_api(get_token())
+
+def fetch_data():
+    """获取今日行情数据"""
+    token = get_token()
+    ts.set_token(token)
+    pro = ts.pro_api(token)
     
-    # 获取全部A股
-    df = pro.stock_basic(
-        exchange='', 
-        list_status='L', 
-        fields='ts_code,symbol,name,industry,list_date'
+    # 获取最近交易日
+    today = datetime.datetime.now()
+    start_date = (today - datetime.timedelta(days=30)).strftime('%Y%m%d')
+    cal_df = pro.trade_cal(exchange='SSE', start_date=start_date, end_date=today.strftime('%Y%m%d'))
+    cal_df = cal_df[cal_df['is_open'] == 1]
+    trade_date = cal_df.iloc[-1]['cal_date']
+    print(f"  使用交易日: {trade_date}")
+    
+    # 直接获取所有股票的daily_basic
+    df = pro.daily_basic(
+        trade_date=trade_date,
+        fields='ts_code,close,pe_ttm,pb,dv_ratio,turnover_rate'
     )
     
-    # 过滤科创板、北交所
+    # 获取股票名称
+    stocks = pro.stock_basic(
+        exchange='', 
+        list_status='L', 
+        fields='ts_code,name'
+    )
+    
+    # 合并名称
+    df = df.merge(stocks[['ts_code', 'name']], on='ts_code', how='left')
+    
+    # 过滤ST和北交所、科创板
+    df = df[~df['name'].str.contains('ST|退', na=False)]
     df = df[~df['ts_code'].str.endswith(('.BJ', '.KCB'))]
     
     return df
 
-def get_daily_data(ts_codes):
-    """获取每日行情数据（PE、PB等）"""
-    # 分批获取
-    all_data = []
-    batch_size = 500
-    
-    for i in range(0, len(ts_codes), batch_size):
-        batch = ts_codes[i:i+batch_size]
-        try:
-            df = ts.pro_bar(
-                ts_code=','.join(batch),
-                asset='E',
-                adj='qfq',
-                start_date=(datetime.datetime.now() - datetime.timedelta(days=30)).strftime('%Y%m%d'),
-                end_date=datetime.datetime.now().strftime('%Y%m%d')
-            )
-            if df is not None and len(df) > 0:
-                all_data.append(df)
-        except Exception as e:
-            print(f"Error fetching batch {i}: {e}")
-    
-    if all_data:
-        return pd.concat(all_data, ignore_index=True)
-    return pd.DataFrame()
 
-def filter_stocks(df, conditions):
-    """筛选股票"""
-    result = df.copy()
+def filter_stocks(df, pe_max=15, pb_max=2, turnover_min=0.5):
+    """筛选低估股票"""
+    if df is None or len(df) == 0:
+        return pd.DataFrame()
     
-    for col, (min_val, max_val) in conditions.items():
-        if col in result.columns:
-            if min_val is not None:
-                result = result[result[col] > min_val]
-            if max_val is not None:
-                result = result[result[col] < max_val]
+    # 筛选条件
+    result = df[
+        (df['pe_ttm'] > 0) & (df['pe_ttm'] < pe_max) &
+        (df['pb'] > 0) & (df['pb'] < pb_max) &
+        (df['turnover_rate'] > turnover_min)
+    ].copy()
+    
+    # 按PE排序
+    result = result.sort_values('pe_ttm')
     
     return result
 
-def save_to_github(df, filename='low_valuation_stocks.csv'):
+
+def save_to_github(df, subdir='value-other-side'):
     """保存结果到GitHub"""
     import requests
-    from io import StringIO
+    from base64 import b64encode
+    
+    if not GITHUB_TOKEN:
+        print("Warning: GITHUB_TOKEN not set, skipping save")
+        return False
     
     date_str = datetime.datetime.now().strftime('%Y-%m-%d')
     content = df.to_csv(index=False, encoding='utf-8-sig')
     
-    # API endpoint
-    url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/data/{filename}"
+    filename = f'low_valuation_{date_str}.csv'
+    url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{subdir}/data/{filename}"
     
     # 检查文件是否存在
     response = requests.get(url, headers={'Authorization': f'token {GITHUB_TOKEN}'})
-    
     sha = response.json().get('sha') if response.status_code == 200 else None
     
     # 上传文件
     data = {
         'message': f'update: {date_str} 低估股票筛选结果',
-        'content': __import__('base64').b64encode(content.encode('utf-8')).decode('utf-8'),
+        'content': b64encode(content.encode('utf-8')).decode('utf-8'),
         'branch': BRANCH
     }
     if sha:
@@ -118,67 +130,79 @@ def save_to_github(df, filename='low_valuation_stocks.csv'):
     response = requests.put(url, json=data, headers={'Authorization': f'token {GITHUB_TOKEN}'})
     
     if response.status_code in [200, 201]:
-        print(f"✓ 已保存到 GitHub: data/{filename}")
+        print(f"✓ 已保存到 GitHub: {subdir}/data/{filename}")
         return True
     else:
         print(f"✗ 保存失败: {response.text}")
         return False
 
+
 def main():
+    parser = argparse.ArgumentParser(
+        description='价值另一面 - A股低估筛选器',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=__doc__
+    )
+    parser.add_argument('-l', '--limit', type=int, default=30, 
+                        help='筛选数量 (default: 30)')
+    parser.add_argument('--pe', type=float, default=15,
+                        help='PE最大值 (default: 15)')
+    parser.add_argument('--pb', type=float, default=2,
+                        help='PB最大值 (default: 2)')
+    parser.add_argument('--turnover', type=float, default=0.5,
+                        help='最小换手率%% (default: 0.5)')
+    parser.add_argument('-s', '--save', action='store_true',
+                        help='保存结果到GitHub')
+    parser.add_argument('-v', '--verbose', action='store_true',
+                        help='显示详细信息')
+    
+    args = parser.parse_args()
+    
     print("=" * 50)
     print("价值另一面 - A股低估筛选器")
+    print(f"筛选条件: PE<{args.pe}, PB<{args.pb}, 换手>{args.turnover}%")
     print("=" * 50)
     
-    # 获取股票列表
-    print("\n[1/3] 获取股票列表...")
-    stocks = fetch_stock_data()
-    print(f"  共 {len(stocks)} 只A股")
+    # 获取数据
+    print("\n[1/2] 获取行情数据...")
+    df = fetch_data()
+    if df is None or len(df) == 0:
+        print("✗ 获取数据失败")
+        sys.exit(1)
+    print(f"  获取到 {len(df)} 只股票")
     
-    # 获取行情数据（简化版：用最新交易日的概览数据）
-    print("\n[2/3] 获取行情数据...")
-    # 这里简化处理，实际需要用tushare的更多接口
-    # 先获取基本面的关键指标
+    # 筛选
+    print("\n[2/2] 筛选低估股票...")
+    result = filter_stocks(
+        df, 
+        pe_max=args.pe, 
+        pb_max=args.pb,
+        turnover_min=args.turnover
+    )
+    result = result.head(args.limit)
+    print(f"  筛选出 {len(result)} 只")
     
-    # 获取实时行情（包含PE、PB）
-    try:
-        df = ts.get_today_all()
-        if df is not None:
-            print(f"  获取到 {len(df)} 条行情数据")
-    except Exception as e:
-        print(f"  获取行情失败: {e}")
-        df = pd.DataFrame()
+    # 展示结果
+    print("\n" + "=" * 50)
+    print(f"低估股票TOP{len(result)}:")
+    print("=" * 50)
     
-    if len(df) > 0:
-        # 筛选
-        print("\n[3/3] 筛选低估股票...")
-        
-        # 过滤条件
-        result = df[
-            (df['pe'] > 0) & (df['pe'] < 15) &  # PE 0-15
-            (df['pb'] > 0) & (df['pb'] < 2) &    # PB 0-2
-            (df['turnoverratiof'] > 0.5)          # 成交活跃
-        ].copy()
-        
-        result = result.sort_values('pe')
-        result = result.head(50)  # 取前50只
-        
-        print(f"  筛选出 {len(result)} 只低估股票")
-        
-        # 展示结果
-        print("\n" + "=" * 50)
-        print("低估股票TOP10:")
-        print("=" * 50)
-        display_cols = ['code', 'name', 'close', 'pe', 'pb', 'turnoverratiof']
-        display_cols = [c for c in display_cols if c in result.columns]
-        print(result[display_cols].head(10).to_string(index=False))
-        
-        # 保存到GitHub
+    display_cols = ['code', 'name', 'close', 'pe', 'pb', 'turnoverratiof']
+    display_cols = [c for c in display_cols if c in result.columns]
+    
+    for i, row in result.iterrows():
+        print(f"{row.get('ts_code', ''):6} {row.get('name', ''):8} "
+              f"现价:{row.get('close', 0):6.2f} "
+              f"PE:{row.get('pe_ttm', 0):6.1f} "
+              f"PB:{row.get('pb', 0):4.2f} "
+              f"换手:{row.get('turnover_rate', 0):5.1f}%")
+    
+    # 保存
+    if args.save:
         save_to_github(result)
-        
-    else:
-        print("  无行情数据")
     
-    print("\n完成!")
+    print(f"\n完成! 共 {len(result)} 只")
+
 
 if __name__ == '__main__':
     main()
