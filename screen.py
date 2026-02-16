@@ -195,16 +195,18 @@ def main():
                         help='Tushare token (或设置环境变量 TUSHARE_TOKEN)')
     parser.add_argument('-s', '--save', action='store_true',
                         help='保存结果到GitHub')
-    parser.add_argument('--no-bank', action='store_true',
-                        help='排除银行股')
-    parser.add_argument('--no-broker', action='store_true',
-                        help='排除券商股')
-    parser.add_argument('--no-insurance', action='store_true',
-                        help='排除保险股')
-    parser.add_argument('--no-real-estate', action='store_true',
-                        help='排除地产股')
-    parser.add_argument('--no-new', action='store_true',
-                        help='排除次新股(上市不满1年)')
+    parser.add_argument('--no-bank', action='store_true', default=True,
+                        help='排除银行股 (默认开启)')
+    parser.add_argument('--no-broker', action='store_true', default=True,
+                        help='排除券商股 (默认开启)')
+    parser.add_argument('--no-insurance', action='store_true', default=True,
+                        help='排除保险股 (默认开启)')
+    parser.add_argument('--no-real-estate', action='store_true', default=True,
+                        help='排除地产股 (默认开启)')
+    parser.add_argument('--no-new', action='store_true', default=True,
+                        help='排除次新股 (默认开启)')
+    parser.add_argument('--include-all', action='store_true',
+                        help='不过滤，包含所有股票')
     
     args = parser.parse_args()
     
@@ -231,41 +233,30 @@ def main():
         sys.exit(1)
     print(f"  获取到 {len(df)} 只股票")
     
-    # 排除银行
-    if args.no_bank:
-        df = df[~df['industry'].str.contains('银行', na=False)]
-        print(f"  排除银行后剩余 {len(df)} 只")
-    
-    # 排除券商
-    if args.no_broker:
-        df = df[~df['industry'].str.contains('证券|券商', na=False)]
-        print(f"  排除券商后剩余 {len(df)} 只")
-    
-    # 排除保险
-    if args.no_insurance:
-        df = df[~df['industry'].str.contains('保险', na=False)]
-        print(f"  排除保险后剩余 {len(df)} 只")
-    
-    # 排除地产
-    if args.no_real_estate:
-        df = df[~df['industry'].str.contains('房地产|地产', na=False)]
-        print(f"  排除地产后剩余 {len(df)} 只")
-    
-    # 排除次新股（上市不满1年）
-    if args.no_new:
-        one_year_ago = (datetime.datetime.now() - datetime.timedelta(days=365)).strftime('%Y%m%d')
-        before = len(df)
-        df = df[df['list_date'] < one_year_ago]
-        print(f"  排除次新股后剩余 {len(df)} 只")
-    
     # 筛选
     print("\n[2/2] 筛选低估股票...")
-    result = filter_stocks(
-        df, 
-        pe_max=args.pe, 
-        pb_max=args.pb,
-        turnover_min=args.turnover
-    )
+    
+    # 默认排除银行/券商/保险/地产/次新股
+    if not args.include_all:
+        result = filter_stocks(
+            df, 
+            pe_max=args.pe, 
+            pb_max=args.pb,
+            turnover_min=args.turnover,
+            no_bank=True,
+            no_broker=True,
+            no_insurance=True,
+            no_real_estate=True,
+            no_new=True
+        )
+    else:
+        result = filter_stocks(
+            df, 
+            pe_max=args.pe, 
+            pb_max=args.pb,
+            turnover_min=args.turnover
+        )
+    
     result = result.head(args.limit)
     print(f"  筛选出 {len(result)} 只")
     
