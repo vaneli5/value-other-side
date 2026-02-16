@@ -75,7 +75,7 @@ def fetch_data(token):
         trade_date = cal_df.iloc[-1]['cal_date']
     print(f"  使用交易日: {trade_date}")
     
-    # 直接获取所有股票的daily_basic
+    # 直接获取所有股票的daily_basic（包含股息率）
     df = pro.daily_basic(
         trade_date=trade_date,
         fields='ts_code,close,pe_ttm,pb,dv_ratio,turnover_rate'
@@ -98,7 +98,7 @@ def fetch_data(token):
     return df
 
 
-def filter_stocks(df, pe_max=15, pb_max=2, turnover_min=0.5, 
+def filter_stocks(df, token, pe_max=15, pb_max=2, turnover_min=0.5, roe_min=0, dividend_min=0,
                    no_bank=False, no_broker=False, no_insurance=False, 
                    no_real_estate=False, no_new=False):
     """筛选低估股票"""
@@ -126,12 +126,49 @@ def filter_stocks(df, pe_max=15, pb_max=2, turnover_min=0.5,
         one_year_ago = (datetime.datetime.now() - datetime.timedelta(days=365)).strftime('%Y%m%d')
         df = df[df['list_date'] < one_year_ago]
     
-    # 筛选条件
+    # 筛选条件（先不加入ROE和股息，在后面添加）
     result = df[
         (df['pe_ttm'] > 0) & (df['pe_ttm'] < pe_max) &
         (df['pb'] > 0) & (df['pb'] < pb_max) &
         (df['turnover_rate'] > turnover_min)
     ].copy()
+    
+    # 如果需要ROE或股息筛选，获取ROE数据
+    if roe_min > 0 or dividend_min > 0:
+        ts.set_token(token)
+        pro = ts.pro_api(token)
+        
+        # 获取ROE数据
+        try:
+            codes = result['ts_code'].tolist()
+            all_roe = []
+            for i in range(0, len(codes), 100):
+                batch = codes[i:i+100]
+                roe_df = pro.fina_indicator(ts_code=','.join(batch), fields='ts_code,roe,end_date')
+                if roe_df is not None and len(roe_df) > 0:
+                    # 取最新报告期
+                    roe_df = roe_df.sort_values('end_date', ascending=False).drop_duplicates('ts_code')
+                    all_roe.append(roe_df[['ts_code', 'roe']])
+            
+            if all_roe:
+                roe_final = pd.concat(all_roe, ignore_index=True)
+                result = result.merge(roe_final, on='ts_code', how='left')
+                print(f"  获取到 {len(roe_final)} 只ROE")
+        except Exception as e:
+            print(f"  获取ROE失败: {e}")
+            result['roe'] = None
+        
+        # 筛选ROE
+        if roe_min > 0:
+            before = len(result)
+            result = result[result['roe'].fillna(0) > roe_min]
+            print(f"  ROE>{roe_min}%: {before} -> {len(result)}")
+        
+        # 筛选股息率
+        if dividend_min > 0:
+            before = len(result)
+            result = result[result['dv_ratio'].fillna(0) > dividend_min]
+            print(f"  股息率>{dividend_min}%: {before} -> {len(result)}")
     
     # 按PE排序
     result = result.sort_values('pe_ttm')
@@ -189,6 +226,10 @@ def main():
                         help='PE最大值 (default: 15)')
     parser.add_argument('--pb', type=float, default=2,
                         help='PB最大值 (default: 2)')
+    parser.add_argument('--roe', type=float, default=0,
+                        help='ROE最小值%% (default: 0，不过滤)')
+    parser.add_argument('--dividend', type=float, default=0,
+                        help='股息率最小值%% (default: 0，不过滤)')
     parser.add_argument('--turnover', type=float, default=0.5,
                         help='最小换手率%% (default: 0.5)')
     parser.add_argument('-t', '--token', type=str, 
@@ -239,10 +280,12 @@ def main():
     # 默认排除银行/券商/保险/地产/次新股
     if not args.include_all:
         result = filter_stocks(
-            df, 
+            df, token,
             pe_max=args.pe, 
             pb_max=args.pb,
             turnover_min=args.turnover,
+            roe_min=args.roe,
+            dividend_min=args.dividend,
             no_bank=True,
             no_broker=True,
             no_insurance=True,
@@ -251,10 +294,12 @@ def main():
         )
     else:
         result = filter_stocks(
-            df, 
+            df, token,
             pe_max=args.pe, 
             pb_max=args.pb,
-            turnover_min=args.turnover
+            turnover_min=args.turnover,
+            roe_min=args.roe,
+            dividend_min=args.dividend
         )
     
     result = result.head(args.limit)
@@ -273,7 +318,9 @@ def main():
               f"现价:{row.get('close', 0):6.2f} "
               f"PE:{row.get('pe_ttm', 0):6.1f} "
               f"PB:{row.get('pb', 0):4.2f} "
-              f"换手:{row.get('turnover_rate', 0):5.1f}%")
+              f"ROE:{row.get('roe', 0):4.1f}% "
+              f"股息:{row.get('dv_ratio', 0):4.1f}% "
+              f"换手:{row.get('turnover_rate', 0):4.1f}%")
     
     # 保存
     if args.save:
