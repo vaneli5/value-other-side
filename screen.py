@@ -16,6 +16,7 @@ import argparse
 import datetime
 import os
 import sys
+from pathlib import Path
 
 try:
     import pandas as pd
@@ -36,14 +37,23 @@ BRANCH = 'main'
 
 
 def get_token(token=None):
-    """获取tushare token"""
+    """获取tushare token: 参数 > 环境变量 > ~/.aj-skills/.env"""
     if token:
         return token
-    token_file = os.path.expanduser('~/.tushare_token')
-    if os.path.exists(token_file):
-        with open(token_file) as f:
-            return f.read().strip()
-    return os.environ.get('TUSHARE_TOKEN', '')
+    
+    # 优先读取环境变量
+    token = os.environ.get('TUSHARE_TOKEN')
+    if token:
+        return token
+    
+    # 读取 ~/.aj-skills/.env
+    env_file = Path.home() / ".aj-skills" / ".env"
+    if env_file.exists():
+        for line in env_file.read_text().splitlines():
+            if line.startswith('TUSHARE_TOKEN='):
+                return line.split('=', 1)[1].strip()
+    
+    return ''
 
 
 def fetch_data(token):
@@ -153,8 +163,7 @@ def main():
     parser.add_argument('--turnover', type=float, default=0.5,
                         help='最小换手率%% (default: 0.5)')
     parser.add_argument('-t', '--token', type=str, 
-                        default='1210f0ad5351429dc2419b3c0434c1b42b702fc5a2a524357bae5861',
-                        help='Tushare token (default: from environment TUSHARE_TOKEN)')
+                        help='Tushare token (或设置环境变量 TUSHARE_TOKEN)')
     parser.add_argument('-s', '--save', action='store_true',
                         help='保存结果到GitHub')
     parser.add_argument('-v', '--verbose', action='store_true',
@@ -162,9 +171,14 @@ def main():
     
     args = parser.parse_args()
     
-    if not args.token:
-        print("Error: 请通过 -t/--token 参数传入 Tushare token")
-        print("Usage: python screen.py -t YOUR_TOKEN [-l 10]")
+    # 优先用参数，其次从环境变量/配置文件读取
+    token = args.token if args.token else get_token()
+    
+    if not token:
+        print("Error: 请传入 Tushare token")
+        print("  - 通过参数: python screen.py -t YOUR_TOKEN")
+        print("  - 或设置环境变量: export TUSHARE_TOKEN=YOUR_TOKEN")
+        print("  - 或配置在 ~/.aj-skills/.env")
         sys.exit(1)
     
     print("=" * 50)
@@ -174,7 +188,7 @@ def main():
     
     # 获取数据
     print("\n[1/2] 获取行情数据...")
-    df = fetch_data(args.token)
+    df = fetch_data(token)
     if df is None or len(df) == 0:
         print("✗ 获取数据失败")
         sys.exit(1)
