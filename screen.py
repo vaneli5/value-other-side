@@ -63,10 +63,16 @@ def fetch_data(token):
     
     # 获取最近交易日
     today = datetime.datetime.now()
-    start_date = (today - datetime.timedelta(days=30)).strftime('%Y%m%d')
+    start_date = (today - datetime.timedelta(days=10)).strftime('%Y%m%d')
     cal_df = pro.trade_cal(exchange='SSE', start_date=start_date, end_date=today.strftime('%Y%m%d'))
-    cal_df = cal_df[cal_df['is_open'] == 1]
-    trade_date = cal_df.iloc[-1]['cal_date']
+    cal_df = cal_df[cal_df['is_open'] == 1].sort_values('cal_date')
+    if len(cal_df) > 0:
+        trade_date = cal_df.iloc[-1]['cal_date']
+    else:
+        # 如果没有开市日，回退到获取所有历史交易日
+        cal_df = pro.trade_cal(exchange='SSE', start_date='20250101', end_date=today.strftime('%Y%m%d'))
+        cal_df = cal_df[cal_df['is_open'] == 1].sort_values('cal_date')
+        trade_date = cal_df.iloc[-1]['cal_date']
     print(f"  使用交易日: {trade_date}")
     
     # 直接获取所有股票的daily_basic
@@ -75,15 +81,15 @@ def fetch_data(token):
         fields='ts_code,close,pe_ttm,pb,dv_ratio,turnover_rate'
     )
     
-    # 获取股票名称
+    # 获取股票名称、行业、上市日期
     stocks = pro.stock_basic(
         exchange='', 
         list_status='L', 
-        fields='ts_code,name'
+        fields='ts_code,name,industry,list_date'
     )
     
-    # 合并名称
-    df = df.merge(stocks[['ts_code', 'name']], on='ts_code', how='left')
+    # 合并名称和行业
+    df = df.merge(stocks[['ts_code', 'name', 'industry', 'list_date']], on='ts_code', how='left')
     
     # 过滤ST和北交所、科创板
     df = df[~df['name'].str.contains('ST|退', na=False)]
@@ -92,10 +98,33 @@ def fetch_data(token):
     return df
 
 
-def filter_stocks(df, pe_max=15, pb_max=2, turnover_min=0.5):
+def filter_stocks(df, pe_max=15, pb_max=2, turnover_min=0.5, 
+                   no_bank=False, no_broker=False, no_insurance=False, 
+                   no_real_estate=False, no_new=False):
     """筛选低估股票"""
     if df is None or len(df) == 0:
         return pd.DataFrame()
+    
+    # 排除银行
+    if no_bank:
+        df = df[~df['industry'].str.contains('银行', na=False)]
+    
+    # 排除券商
+    if no_broker:
+        df = df[~df['industry'].str.contains('证券|券商', na=False)]
+    
+    # 排除保险
+    if no_insurance:
+        df = df[~df['industry'].str.contains('保险', na=False)]
+    
+    # 排除地产
+    if no_real_estate:
+        df = df[~df['industry'].str.contains('房地产|地产', na=False)]
+    
+    # 排除次新股
+    if no_new:
+        one_year_ago = (datetime.datetime.now() - datetime.timedelta(days=365)).strftime('%Y%m%d')
+        df = df[df['list_date'] < one_year_ago]
     
     # 筛选条件
     result = df[
@@ -166,8 +195,16 @@ def main():
                         help='Tushare token (或设置环境变量 TUSHARE_TOKEN)')
     parser.add_argument('-s', '--save', action='store_true',
                         help='保存结果到GitHub')
-    parser.add_argument('-v', '--verbose', action='store_true',
-                        help='显示详细信息')
+    parser.add_argument('--no-bank', action='store_true',
+                        help='排除银行股')
+    parser.add_argument('--no-broker', action='store_true',
+                        help='排除券商股')
+    parser.add_argument('--no-insurance', action='store_true',
+                        help='排除保险股')
+    parser.add_argument('--no-real-estate', action='store_true',
+                        help='排除地产股')
+    parser.add_argument('--no-new', action='store_true',
+                        help='排除次新股(上市不满1年)')
     
     args = parser.parse_args()
     
@@ -193,6 +230,33 @@ def main():
         print("✗ 获取数据失败")
         sys.exit(1)
     print(f"  获取到 {len(df)} 只股票")
+    
+    # 排除银行
+    if args.no_bank:
+        df = df[~df['industry'].str.contains('银行', na=False)]
+        print(f"  排除银行后剩余 {len(df)} 只")
+    
+    # 排除券商
+    if args.no_broker:
+        df = df[~df['industry'].str.contains('证券|券商', na=False)]
+        print(f"  排除券商后剩余 {len(df)} 只")
+    
+    # 排除保险
+    if args.no_insurance:
+        df = df[~df['industry'].str.contains('保险', na=False)]
+        print(f"  排除保险后剩余 {len(df)} 只")
+    
+    # 排除地产
+    if args.no_real_estate:
+        df = df[~df['industry'].str.contains('房地产|地产', na=False)]
+        print(f"  排除地产后剩余 {len(df)} 只")
+    
+    # 排除次新股（上市不满1年）
+    if args.no_new:
+        one_year_ago = (datetime.datetime.now() - datetime.timedelta(days=365)).strftime('%Y%m%d')
+        before = len(df)
+        df = df[df['list_date'] < one_year_ago]
+        print(f"  排除次新股后剩余 {len(df)} 只")
     
     # 筛选
     print("\n[2/2] 筛选低估股票...")
