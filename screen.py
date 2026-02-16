@@ -176,6 +176,73 @@ def filter_stocks(df, token, pe_max=15, pb_max=2, turnover_min=0.5, roe_min=0, d
     return result
 
 
+def show_top3(df, token):
+    """展示各维度TOP3"""
+    if df is None or len(df) == 0:
+        print("无数据")
+        return
+    
+    ts.set_token(token)
+    pro = ts.pro_api(token)
+    
+    # 获取ROE数据
+    codes = df['ts_code'].tolist()
+    all_roe = []
+    for i in range(0, len(codes), 100):
+        batch = codes[i:i+100]
+        try:
+            roe_df = pro.fina_indicator(ts_code=','.join(batch), fields='ts_code,roe,end_date')
+            if roe_df is not None and len(roe_df) > 0:
+                roe_df = roe_df.sort_values('end_date', ascending=False).drop_duplicates('ts_code')
+                all_roe.append(roe_df[['ts_code', 'roe']])
+        except:
+            pass
+    
+    if all_roe:
+        roe_df = pd.concat(all_roe, ignore_index=True)
+        df = df.merge(roe_df, on='ts_code', how='left')
+    
+    # 过滤基本条件
+    df = df[(df['pe_ttm'] > 0) & (df['pe_ttm'] < 20) & 
+            (df['pb'] > 0) & (df['pb'] < 3) &
+            (df['turnover_rate'] > 0.5)]
+    
+    print("\n" + "="*50)
+    print("各维度TOP3 (PE<20, PB<3, 换手>0.5%)")
+    print("="*50)
+    
+    # 高ROE TOP3
+    top_roe = df[df['roe'].notna()].nlargest(3, 'roe')
+    print("\n📈 高ROE TOP3:")
+    for _, row in top_roe.iterrows():
+        print(f"  {row['ts_code']:6} {row['name']:8} PE:{row['pe_ttm']:4.1f} ROE:{row['roe']:5.1f}%")
+    
+    # 高股息 TOP3
+    top_div = df.nlargest(3, 'dv_ratio')
+    print("\n💰 高股息 TOP3:")
+    for _, row in top_div.iterrows():
+        print(f"  {row['ts_code']:6} {row['name']:8} PE:{row['pe_ttm']:4.1f} 股息:{row['dv_ratio']:5.1f}%")
+    
+    # 低PE TOP3
+    top_pe = df.nsmallest(3, 'pe_ttm')
+    print("\n🔍 低PE TOP3:")
+    for _, row in top_pe.iterrows():
+        print(f"  {row['ts_code']:6} {row['name']:8} PE:{row['pe_ttm']:4.1f} PB:{row['pb']:4.2f}")
+    
+    # 低PB TOP3
+    top_pb = df.nsmallest(3, 'pb')
+    print("\n🏷️ 低PB TOP3:")
+    for _, row in top_pb.iterrows():
+        print(f"  {row['ts_code']:6} {row['name']:8} PB:{row['pb']:4.2f} PE:{row['pe_ttm']:4.1f}")
+    
+    # 高ROE+高股息（双重筛选）
+    df['score'] = df['roe'].fillna(0) + df['dv_ratio'].fillna(0)
+    top_combo = df.nlargest(3, 'score')
+    print("\n⭐ 高ROE+高股息 TOP3:")
+    for _, row in top_combo.iterrows():
+        print(f"  {row['ts_code']:6} {row['name']:8} ROE:{row['roe']:4.1f}% 股息:{row['dv_ratio']:4.1f}% PE:{row['pe_ttm']:4.1f}")
+
+
 def save_to_github(df, subdir='value-other-side'):
     """保存结果到GitHub"""
     import requests
@@ -248,6 +315,8 @@ def main():
                         help='排除次新股 (默认开启)')
     parser.add_argument('--include-all', action='store_true',
                         help='不过滤，包含所有股票')
+    parser.add_argument('--top3', action='store_true',
+                        help='展示各维度TOP3')
     
     args = parser.parse_args()
     
@@ -273,6 +342,11 @@ def main():
         print("✗ 获取数据失败")
         sys.exit(1)
     print(f"  获取到 {len(df)} 只股票")
+    
+    # 如果是top3模式
+    if args.top3:
+        show_top3(df, token)
+        return
     
     # 筛选
     print("\n[2/2] 筛选低估股票...")
